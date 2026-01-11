@@ -1,0 +1,5 @@
+{
+  "name": "InvoiceSummarizer AI",
+  "description": "An AI-powered tool that summarizes complex PDF invoices into concise, single-line descriptions with calculated totals, handling standard rates and overtime automatically.",
+  "requestFramePermissions": []
+}
