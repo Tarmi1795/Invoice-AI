@@ -1,6 +1,8 @@
+
 import React, { useState, useCallback } from 'react';
-import { Upload, ScanLine, FileDown, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Upload, ScanLine, FileDown, Loader2, AlertCircle, Download } from 'lucide-react';
 import { processDocument } from '../services/geminiService';
+import JSZip from 'jszip';
 
 interface ITPItem {
     id: string;
@@ -12,6 +14,7 @@ interface ITPItem {
 const ITPParser: React.FC = () => {
     const [queue, setQueue] = useState<ITPItem[]>([]);
     const [dragActive, setDragActive] = useState(false);
+    const [isZipping, setIsZipping] = useState(false);
 
     const processItem = async (item: ITPItem) => {
         try {
@@ -55,8 +58,8 @@ const ITPParser: React.FC = () => {
         if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
     };
 
-    const downloadCSV = (item: ITPItem) => {
-        if (!item.data?.items) return;
+    const getCSVContent = (item: ITPItem): string | null => {
+        if (!item.data?.items) return null;
         
         const headers = ["Reference", "Activity", "Date", "Status"];
         const rows = item.data.items.map((row: any) => [
@@ -66,8 +69,14 @@ const ITPParser: React.FC = () => {
             `"${row.status || ''}"`
         ]);
         
-        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map((r: any[]) => r.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
+        return [headers.join(','), ...rows.map((r: any[]) => r.join(','))].join('\n');
+    };
+
+    const downloadCSV = (item: ITPItem) => {
+        const csvContent = getCSVContent(item);
+        if (!csvContent) return;
+        
+        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
         link.setAttribute("download", `${item.file.name}_parsed.csv`);
@@ -75,6 +84,43 @@ const ITPParser: React.FC = () => {
         link.click();
         document.body.removeChild(link);
     };
+
+    const handleBatchDownload = async () => {
+        const successfulItems = queue.filter(item => item.status === 'success' && item.data);
+        if (successfulItems.length === 0) {
+            alert("No parsed files available to download.");
+            return;
+        }
+
+        setIsZipping(true);
+        try {
+            const zip = new JSZip();
+            
+            for (const item of successfulItems) {
+                const csvContent = getCSVContent(item);
+                if (csvContent) {
+                    const filename = `${item.file.name.split('.')[0]}_parsed.csv`;
+                    zip.file(filename, csvContent);
+                }
+            }
+
+            const content = await zip.generateAsync({ type: "blob" });
+            
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(content);
+            link.download = `itp_batch_${new Date().toISOString().slice(0,10)}.zip`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (e) {
+            console.error(e);
+            alert("Failed to zip files.");
+        } finally {
+            setIsZipping(false);
+        }
+    };
+
+    const successfulCount = queue.filter(q => q.status === 'success').length;
 
     return (
         <div className="space-y-8 animate-fadeIn">
@@ -105,7 +151,19 @@ const ITPParser: React.FC = () => {
 
             {queue.length > 0 && (
                 <div className="bg-zinc-900 rounded-2xl shadow-lg border border-zinc-800 overflow-hidden">
-                    <div className="p-4 bg-zinc-900/50 border-b border-zinc-800 font-semibold text-zinc-400">Processing Queue</div>
+                    <div className="p-4 bg-zinc-900/50 border-b border-zinc-800 font-semibold text-zinc-400 flex justify-between items-center">
+                        <span>Processing Queue ({queue.length})</span>
+                        {successfulCount > 0 && (
+                            <button 
+                                onClick={handleBatchDownload}
+                                disabled={isZipping}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium rounded-lg border border-zinc-700 transition-all disabled:opacity-50"
+                            >
+                                {isZipping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                                Download All ({successfulCount})
+                            </button>
+                        )}
+                    </div>
                     <div className="divide-y divide-zinc-800">
                         {queue.map(item => (
                             <div key={item.id} className="p-4 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">

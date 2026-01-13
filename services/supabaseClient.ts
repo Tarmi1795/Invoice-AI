@@ -1,5 +1,6 @@
+
 import { createClient } from '@supabase/supabase-js';
-import { TemplateData } from '../types';
+import { TemplateData, UsageLog } from '../types';
 
 const supabaseUrl = 'https://zmpnigavsyggfhdfdeht.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InptcG5pZ2F2c3lnZ2ZoZGZkZWh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxMjY5NzEsImV4cCI6MjA4MzcwMjk3MX0.yU_yJ2ke8vg2C6JACykkIyW4sl0X2JyDGGRCHN5MeIM';
@@ -105,8 +106,37 @@ export const deleteRate = async (id: string) => {
 };
 
 export const deleteAllRates = async () => {
-    // Matches everything where reference_no is not a dummy value
-    // This effectively deletes all rows
     const { error } = await supabase.from('rates').delete().neq('reference_no', '__DELETE_ALL_GUARD__');
     if (error) throw error;
+};
+
+// --- Usage & Cost Tracking ---
+
+export const logUsage = async (log: UsageLog) => {
+    try {
+        // If table doesn't exist, this will fail silently in the UI but log to console
+        const { error } = await supabase.from('usage_logs').insert(log);
+        if (error) console.warn('Failed to log usage:', error.message);
+    } catch (e) {
+        console.warn('Usage logging skipped (likely no table)');
+    }
+};
+
+export const fetchUsageLogs = async (days: number = 30): Promise<UsageLog[]> => {
+    try {
+        const date = new Date();
+        date.setDate(date.getDate() - days);
+        
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .select('*')
+            .gte('created_at', date.toISOString())
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return data || [];
+    } catch (e) {
+        console.warn('Failed to fetch usage logs');
+        return [];
+    }
 };

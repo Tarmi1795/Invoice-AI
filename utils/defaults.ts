@@ -5,7 +5,7 @@ import { TemplateData, TemplateElement } from '../types';
 const PAGE_WIDTH = 794;
 
 // Simple SVG placeholder converted to Base64 to ensure it always renders without network/CORS issues
-const DEFAULT_LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAYAAACqNX6+AAAACXBIWXMAAAsTAAALEwEAmpwYAAAFEElEQVR4nO2bXWwUVRTHf3d2W/pB+lGkFColFNoCgYJtUYkGokRjDD6o0cQHjT6Q6JMx+uCDRokPfTA+EOMGg6gJMWqMKVqg0hYCpS2lFCo/CqW0293ZnXFm2u52u9vubbczE/b/NJN7587s/Obec889M3cWERFqjZ7aDkC9I4UESZCGEiRBGo4WpL09j81bV9HZ2U5vb4i1a310dLTXdmw1xXCC9Pb2c+LEBWpra/n112sMD49QUxPgyJETtR1fTTCcIA0N39PfP0RdXQ1r1/oAuHbtOsPDwzUcYU0wnCCBQIBAIIBSipMnL3L+/E9EIhF8vrbajq8mGE6QlpZmbty4ycDAGJ9/3kFbWzOdnW21HVtNMZwgAN3dndzobOfrr3by22+j1Nf7azuummM4QRoaGti6tYfTp3/n6NE+enp6aWjw13ZsNcVwggB0d3dSVxeiv7+X3t5eWlu9tR1XzTGsIPF4nJ0795FMphgcHKCnp7O2Y6sphhWkqamJcDjMxYu/c+DAFtra2mo7tppjSEF27/6YkZERPvroA7q7u9m0qaG2Y6sxRBSklFJKqUQKJ51ASomU0pXv4+M/8tlnR9m/v5f+/l4CgcA/v4dCIQD27PmYcDjM6tU+Vq/2uXIeHx/nyy9P0d3dTUtLM01NTa78F0IIQfYdOM7o4H/ge5y8+ANgEASIRqOk02m3kywIIUT/gW8YHfzX1c1O/vIDYBAECAaDJJNJtxMshBCir2+I0cF/XN3s5M/fAQZBAP/q1cTjcbcTLIQQ4sCBI4wO/u3qZic//wAYBAG8q1YRi8XcTrAQQoj29nZG/7ns6mYnP/0AGAQBvCtXEo1G3U6wEEKItrY2RgevuLrZyY/fAQZBgMrKSqLRqNsJFkIIsWnTJkYHr7i62cn33wIGQQBvVRWRSMTtBAshhFi/fj2jgyOuDnbS9+1XwCAI4F2xglA47HaChRBCrFmzhtHBEVcHOznx9VeAQRDAu3w5oVDQ7QQLIYRYuXIlI4Mjrg528u2XgEEQwLtsGSFXE0wIIcTy5csZGRx2dbCTb74EDAIPXm8ZwWA1yWTS7SQLIYRYunQpI4PDrm528vXXgEHgwVNWRigUJJlMup1gIYQQS5YsYWRwJNfNTk68/BIwCDx4ysqIhoIkk0m3EyyEEEJ7vYwM/uPqZicn/ngJGAQePEuXEg0FSSaTbidYCCGE5/FlyC+XXN3s5PhLwCDw4CktJRYKkEwm3U6wEEIIz+LFWCcuuLrZyfGXgEHgwbNwIdFggGQy6XaChRBCeBctwvrlgqubnRx7CRgEHjz5+cQC1SQSjtsJCiGE8CxcSPKzC65udnLsRWAQePDk5xOrDpBMJtxOsBBCiMWLF5P87KKrm50cexEwCDx48vKIVQdIJpNuJ1gIIcTChQtJfnrR1c1Ovv4CMAg8eHJziFZWkEwm3U6wEEKI+fPnY31yoaubnRx9HhgEHjy5OcSqKkgmE24nWAghxLx580h+fMnVzU6+OgIYBB48uTnEqipIJBNuJ1gIIcScOXNIfnLF1c1OvvociP95N56cHGLVASSdcTdBCCGEt3AhyU8vuLrZyeEXgUHgwZOTQywYIJlMup1gIYQQc+bMIfnxZVcHf3L4BcAg8ODJzsYfCJBMJt1OsBBCCM/s2Vg/X3F18CeHXwQMAg+e7Gz8gQDJZNLtBAshhJg1axbJTy67OvjJkRcBg8CDJysLfzBAMpl0O8FCCCGSySSJRALo/xP0F5R8Pz1hJ+9rAAAAAElFTkSuQmCC";
+const DEFAULT_LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAYAAACqNX6+AAAACXBIWXMAAAsTAAALEwEAmpwYAAAFEElEQVR4nO2bXWwUVRTHf3d2W/pB+lGkFColFNoCgYJtUYkGokRjDD6o0cQHjT6Q6JMx+uCDRokPfTA+EOMGg6gJMWqMKVqg0hYCpS2lFCo/CqW0293ZnXFm2u52u9vubbczE/b/NJN7587s/Obec889M3cWERFqjZ7aDkC9I4UESZCGEiRBGo4WpL09j81bV9HZ2U5vb4i1a310dLTXdmw1xXCC9Pb2c+LEBWpra/n112sMD49QUxPgyJETtR1fTTCcIA0N39PfP0RdXQ1r1/oAuHbtOsPDwzUcYU0wnCCBQIBAIIBSipMnL3L+/E9EIhF8vrbajq8mGE6QlpZmbty4ycDAGJ9/3kFbWzOdnW21HVtNMZwgAN3dndzobOfrr3by22+j1Nf7azuummM4QRoaGti6tYfTp3/n6NE+enp6aWjw13ZsNcVwggB0d3dSVxeiv7+X3t5eWlu9tR1XzTGsIPF4nJ0795FMphgcHKCnp7O2Y6sphhWkqamJcDjMxYu/c+DAFtra2mo7tppjSEF27/6YkZERPvroA7q7u9m0qaG2Y6sxRBSklFJKqUQKJ51ASomU0pXv4+M/8tlnR9m/v5f+/l4CgcA/v4dCIQD27PmYcDjM6tU+Vq/2uXIeHx/nyy9P0d3dTUtLM01NTa78F0IIQfYdOM7o4H/ge5y8+ANgEASIRqOk02m3kywIIUT/gW8YHfzX1c1O/vIDYBAECAaDJJNJtxMshBCir2+I0cF/XN3s5M/fAQZBAP/q1cTjcbcTLIQQ4sCBI4wO/u3qZic//wAYBAG8q1YRi8XcTrAQQoj29nZG/7ns6mYnP/0AGAQBvCtXEo1G3U6wEEKItrY2RgevuLrZyY/fAQZBgMrKSqLRqNsJFkIIsWnTJkYHr7i62cn33wIGQQBvVRWRSMTtBAshhFi/fj2jgyOuDnbS9+1XwCAI4F2xglA47HaChRBCrFmzhtHBEVcHOznx9VeAQRDAu3w5oVDQ7QQLIYRYuXIlI4Mjrg528u2XgEEQwLtsGSFXE0wIIcTy5csZGRx2dbCTb74EDAIPXm8ZwWA1yWTS7SQLIYRYunQpI4PDrm528vXXgEHgwVNWRigUJJlMup1gIYQQS5YsYWRwJNfNTk68/BIwCDx4ysqIhoIkk0m3EyyEEEJ7vYwM/uPqZicn/ngJGAQePEuXEg0FSSaTbidYCCGE5/FlyC+XXN3s5PhLwCDw4CktJRYKkEwm3U6wEEKIz+LFWCcuuLrZyfGXgEHgwbNwIdFggGQy6XaChRBCeBctwvrlgqubnRx7CRgEHjz5+cQC1SQSjtsJCiGE8CxcSPKzC65udnLsRWAQePDk5xOrDpBMJtxOsBBCiMWLF5P87KKrm50cexEwCDx48vKIVQdIJpNuJ1gIIcTChQtJfnrR1c1Ovv4CMAg8eHJziFZWkEwm3U6wEEKI+fPnY31yoaubnRx9HhgEHjy5OcSqKkgmE24nWAghxLx580h+fMnVzU6+OgIYBB48uTnEqipIJBNuJ1gIIcScOXNIfnLF1c1OvvociP95N56cHGLVASSdcTdBCCGEt3AhyU8vuLrZyeEXgUHgwZOTQywYIJlMup1gIYQQc+bMIfnxZVcHf3L4BcAg8ODJzsYfCJBMJt1OsBBCCM/s2Vg/X3F18CeHXwQMAg+e7Gz8gQDJZNLtBAshhJg1axbJTy67OvjJkRcBg8CDJysLfzBAMpl0O8FCCCGSySSJRALo/xP0F5R8Pz1hJ+9rAAAAAElFTkSuQmCC";
 
 export const DEFAULT_LAYOUT = ['header', 'vendor', 'client', 'lines', 'bank', 'footer'];
 
@@ -88,9 +88,12 @@ export const DEFAULT_ELEMENTS: TemplateElement[] = [
   { id: 'val_wo', type: 'text', label: 'Val WO', x: 520, y: 195, width: 200, height: 15, binding: 'metadata.workOrder', style: { fontSize: 9 } },
   { id: 'val_cont', type: 'text', label: 'Val Contract', x: 520, y: 210, width: 200, height: 15, binding: 'metadata.contractNo', style: { fontSize: 9 } },
   { id: 'val_proj', type: 'text', label: 'Val Proj', x: 520, y: 225, width: 200, height: 15, binding: 'metadata.projectName', style: { fontSize: 9 } },
-  { id: 'val_curr', type: 'text', label: 'Val Curr', x: 520, y: 240, width: 200, height: 15, binding: 'currency', style: { fontSize: 9 } },
+  { id: 'val_curr', type: 'text', label: 'Val Curr', x: 520, y: 240, width: 200, height: 15, binding: 'metadata.currency', style: { fontSize: 9 } },
   { id: 'val_dept', type: 'text', label: 'Val Dept', x: 520, y: 255, width: 200, height: 15, binding: 'metadata.department', style: { fontSize: 9 } },
 
+  // --- Header Extras ---
+  { id: 'lbl_scope', type: 'text', label: 'Label Scope', x: 40, y: 290, width: 100, height: 15, content: 'Scope of Work:', style: { fontSize: 9, fontWeight: 'bold' } },
+  { id: 'val_scope', type: 'text', label: 'Val Scope', x: 140, y: 290, width: 600, height: 15, binding: 'metadata.scopeOfWork', style: { fontSize: 9 } },
 
   // --- Table ---
   {
@@ -117,6 +120,25 @@ export const DEFAULT_ELEMENTS: TemplateElement[] = [
       binding: 'amountInWords',
       style: { fontSize: 10, fontWeight: 'bold' }
   },
+
+  // --- Total Block (Right Side below table) ---
+  {
+    id: 'lbl_grand_total',
+    type: 'text',
+    label: 'Label Total',
+    x: 550, y: 685, width: 100, height: 20,
+    content: 'Grand Total:',
+    style: { fontSize: 12, fontWeight: 'bold', align: 'right' }
+  },
+  {
+    id: 'val_grand_total',
+    type: 'text',
+    label: 'Value Total',
+    x: 660, y: 685, width: 90, height: 20,
+    binding: 'grandTotal',
+    style: { fontSize: 12, fontWeight: 'bold', align: 'right' }
+  },
+
 
   // --- Footer / Bank Details ---
   {
@@ -182,7 +204,9 @@ export const DEFAULT_TEMPLATE: TemplateData = {
     contractNo: "LTC/C/NFE/4935-A-20",
     projectName: "NFPS COMP2",
     department: "VSS",
-    paymentTerms: "Payment terms: 60 days upon submission of Invoice"
+    paymentTerms: "Payment terms: 60 days upon submission of Invoice",
+    scopeOfWork: "Provision of Inspection Services",
+    currency: "USD"
   },
   bankDetails: {
     accountName: "VELOSI CERTIFICATION LLC",

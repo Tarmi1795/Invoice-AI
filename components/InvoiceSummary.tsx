@@ -1,45 +1,32 @@
 
 import React, { useState, useEffect } from 'react';
-import { InvoiceData, SummaryLine, BankDetails, InvoiceMetadata, TemplateElement } from '../types';
+import { InvoiceData, SummaryLine, InvoiceMetadata } from '../types';
 import { CheckCircle2, Download, Pencil, Save, RefreshCw } from 'lucide-react';
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 import { numberToWords } from '../utils/currency';
 import { DEFAULT_ELEMENTS } from '../utils/defaults';
+import { generateInvoicePDF } from '../utils/pdfGenerator';
 
 interface InvoiceSummaryProps {
   data: InvoiceData;
 }
 
-const PX_TO_MM = 0.2645;
-
-const getDataUrl = (url: string): Promise<string> => {
-    return new Promise((resolve) => {
-        if (!url) { resolve(''); return; }
-        if (url.startsWith('data:')) {
-            resolve(url);
-            return;
-        }
-        // Fallback for external images if fetch fails due to CORS
-        const img = new Image();
-        img.crossOrigin = 'Anonymous';
-        img.src = url;
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            if(ctx) {
-                ctx.drawImage(img, 0, 0);
-                try { resolve(canvas.toDataURL('image/png')); } catch(err) { resolve(''); }
-            } else { resolve(''); }
-        };
-        img.onerror = () => {
-             console.warn('Failed to load image, returning empty');
-             resolve('');
-        };
-    });
+const formatCurrency = (amount: number) => {
+    if (isNaN(amount)) return "0.00";
+    return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+
+// Defined OUTSIDE the component to prevent re-mounting on every render (fixing focus loss)
+const InputField = ({ label, value, onChange }: { label: string, value?: string, onChange: (val: string) => void }) => (
+    <div className="mb-2">
+      <label className="block text-xs font-bold text-zinc-500 mb-1 uppercase">{label}</label>
+      <input 
+        type="text" 
+        value={value || ''} 
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full text-sm p-2 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
+      />
+    </div>
+);
 
 const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ data: initialData }) => {
   const [data, setData] = useState<InvoiceData>(initialData);
@@ -70,18 +57,6 @@ const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ data: initialData }) =>
     setData(prev => ({ ...prev, summary: newSummary, grandTotal: newGrandTotal }));
   };
 
-  const InputField = ({ label, value, onChange }: any) => (
-    <div className="mb-2">
-      <label className="block text-xs font-bold text-zinc-500 mb-1 uppercase">{label}</label>
-      <input 
-        type="text" 
-        value={value || ''} 
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full text-sm p-2 bg-zinc-800 text-zinc-200 border border-zinc-700 rounded focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
-      />
-    </div>
-  );
-
   const getValue = (binding?: string, content?: string) => {
       if (binding) {
           if (binding === 'bankDetails.summary') {
@@ -94,7 +69,15 @@ const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ data: initialData }) =>
           const parts = binding.split('.');
           let val: any = data;
           for (const p of parts) val = val?.[p];
-          return val !== undefined && val !== null ? String(val) : '';
+          
+          if (val !== undefined && val !== null) {
+              // Auto format numbers
+              if (typeof val === 'number' && (binding === 'grandTotal' || binding.includes('rate') || binding.includes('total'))) {
+                  return formatCurrency(val);
+              }
+              return String(val);
+          }
+          return '';
       }
       return content || '';
   };
@@ -115,6 +98,8 @@ const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ data: initialData }) =>
                       color: el.style?.color || '#000',
                       fontSize: el.style?.fontSize || 12,
                       fontWeight: el.style?.fontWeight || 'normal',
+                      fontStyle: el.style?.fontStyle || 'normal',
+                      textDecoration: el.style?.textDecoration || 'none',
                       textAlign: (el.style?.align as any) || 'left',
                       zIndex: el.type === 'box' ? 1 : 2, 
                       display: 'flex',
@@ -140,8 +125,8 @@ const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ data: initialData }) =>
                               <div key={i} className="flex p-1 border-t border-gray-100 text-black">
                                   <div className="flex-1 truncate">{line.description}</div>
                                   <div className="w-16 text-center">{line.quantity} {line.unit}</div>
-                                  <div className="w-16 text-right">{line.rate.toFixed(2)}</div>
-                                  <div className="w-16 text-right">{line.total.toFixed(2)}</div>
+                                  <div className="w-16 text-right">{formatCurrency(line.rate)}</div>
+                                  <div className="w-16 text-right">{formatCurrency(line.total)}</div>
                               </div>
                           ))}
                           <div className="p-1 text-center text-gray-400 italic">... (Full table in PDF) ...</div>
@@ -157,75 +142,7 @@ const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ data: initialData }) =>
   const generatePdf = async () => {
     setIsGeneratingPdf(true);
     try {
-        const doc = new jsPDF('p', 'mm', 'a4');
-        const typeOrder = { 'box': 0, 'image': 1, 'table': 2, 'text': 3 };
-        const sortedElements = [...elements].sort((a, b) => {
-            const typeScore = (typeOrder[a.type] || 2) - (typeOrder[b.type] || 2);
-            if (typeScore !== 0) return typeScore;
-            return a.y - b.y;
-        });
-
-        for (const el of sortedElements) {
-            const x = el.x * PX_TO_MM;
-            const y = el.y * PX_TO_MM;
-            const w = el.width * PX_TO_MM;
-            const h = el.height * PX_TO_MM;
-
-            if (el.type === 'box') {
-                doc.setFillColor(el.style?.backgroundColor || '#ffffff');
-                doc.setDrawColor(200, 200, 200);
-                doc.rect(x, y, w, h, 'FD');
-            } 
-            else if (el.type === 'text') {
-                const fontSize = Number(el.style?.fontSize || 12) * 0.75;
-                doc.setFontSize(fontSize);
-                doc.setFont("helvetica", el.style?.fontWeight === 'bold' ? 'bold' : 'normal');
-                doc.setTextColor(el.style?.color || '#000000');
-                
-                const rawText = getValue(el.binding, el.content);
-                const align = el.style?.align || 'left';
-                const lines = doc.splitTextToSize(rawText, w);
-                
-                let textX = x;
-                if (align === 'center') textX = x + (w / 2);
-                if (align === 'right') textX = x + w;
-
-                doc.text(lines, textX, y + fontSize/2 + 2, { align: align as any, baseline: 'top' });
-            }
-            else if (el.type === 'image' && el.content) {
-                const imgData = await getDataUrl(el.content);
-                if (imgData) {
-                    try { doc.addImage(imgData, 'PNG', x, y, w, h); } catch (e) { console.warn('Image add failed', e); }
-                }
-            }
-            else if (el.type === 'table') {
-                const tableColumn = ["DESCRIPTION", "QTY", "RATE", "TOTAL"];
-                const tableRows = data.summary.map(item => [
-                    item.description,
-                    `${item.quantity} ${item.unit}`,
-                    Number(item.rate).toFixed(2),
-                    Number(item.total).toFixed(2)
-                ]);
-
-                autoTable(doc, {
-                    head: [tableColumn],
-                    body: tableRows,
-                    startY: y,
-                    margin: { left: x },
-                    tableWidth: w,
-                    theme: 'plain',
-                    styles: { fontSize: 9, cellPadding: 2, overflow: 'linebreak' },
-                    headStyles: { fillColor: [240, 240, 240], fontStyle: 'bold', textColor: 50, halign: 'left' },
-                    columnStyles: { 
-                        0: { cellWidth: 'auto', halign: 'left' }, 
-                        1: { cellWidth: 25, halign: 'center' },
-                        2: { cellWidth: 30, halign: 'right' },
-                        3: { cellWidth: 30, halign: 'right' } 
-                    },
-                });
-            }
-        }
-
+        const doc = await generateInvoicePDF(data);
         const fileName = `${(data.metadata?.invoiceNumber || "Invoice").replace(/[^a-z0-9]/gi, '_')}.pdf`;
         doc.save(fileName);
     } catch (e) {

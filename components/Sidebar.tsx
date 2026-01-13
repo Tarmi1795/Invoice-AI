@@ -1,5 +1,7 @@
+
 import React from 'react';
-import { FileText, ShoppingCart, Clock, LayoutTemplate, Database, ScanLine } from 'lucide-react';
+import { FileText, ShoppingCart, Clock, LayoutTemplate, Database, ScanLine, Activity, ArrowRightLeft, Microscope } from 'lucide-react';
+import GlitchLogo from './GlitchLogo';
 
 interface SidebarProps {
     activeModule: string;
@@ -11,22 +13,22 @@ const Sidebar: React.FC<SidebarProps> = ({ activeModule, onModuleChange }) => {
         { id: 'invoice', label: 'Invoice Summarizer', icon: FileText },
         { id: 'po', label: 'PO to Proforma', icon: ShoppingCart },
         { id: 'timesheet', label: 'Timesheet to Invoice', icon: Clock },
+        { id: 'reconciliation', label: 'Reconciliation', icon: ArrowRightLeft },
+        { id: 'qp', label: 'QP Report Parser', icon: Microscope },
         { id: 'itp', label: 'ITP Parser', icon: ScanLine },
         { id: 'rates', label: 'Rate Manager', icon: Database },
         { id: 'templates', label: 'Template Engine', icon: LayoutTemplate },
+        { id: 'cost', label: 'Cost History', icon: Activity },
     ];
 
     return (
         <div className="w-64 bg-zinc-900 border-r border-zinc-800 text-zinc-300 h-screen fixed left-0 top-0 flex flex-col shadow-2xl z-50">
             <div className="p-6 border-b border-zinc-800 flex flex-col items-center gap-4">
-                <div className="bg-white p-2 rounded-lg w-full flex justify-center shadow-lg shadow-orange-900/10">
-                    <img 
-                        src="https://images.seeklogo.com/logo-png/19/1/applus-velosi-logo-png_seeklogo-193943.png" 
-                        alt="Applus Velosi" 
-                        className="h-10 object-contain"
-                    />
-                </div>
-                <div className="text-[10px] font-bold text-orange-500 uppercase tracking-[0.2em]">
+                
+                {/* Glitch Logo Component */}
+                <GlitchLogo />
+
+                <div className="text-[10px] font-bold text-orange-500 uppercase tracking-[0.2em] relative z-20">
                     AI Agent System
                 </div>
             </div>

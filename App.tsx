@@ -1,11 +1,15 @@
+
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import DocumentQueue from './components/DocumentQueue';
 import TemplateEditor from './components/TemplateEditor';
 import RateManager from './components/RateManager';
 import ITPParser from './components/ITPParser';
+import CostTracker from './components/CostTracker';
+import Reconciliation from './components/Reconciliation';
+import QPReportParser from './components/QPReportParser';
 
-type Module = 'invoice' | 'po' | 'timesheet' | 'templates' | 'rates' | 'itp';
+type Module = 'invoice' | 'po' | 'timesheet' | 'templates' | 'rates' | 'itp' | 'cost' | 'reconciliation' | 'qp';
 
 const App: React.FC = () => {
   const [activeModule, setActiveModule] = useState<Module>('invoice');
@@ -18,12 +22,18 @@ const App: React.FC = () => {
             return <DocumentQueue type="po" title="PO to Proforma" description="Convert Purchase Orders into Proforma Invoices automatically." />;
         case 'timesheet':
             return <DocumentQueue type="timesheet" title="Timesheet to Invoice" description="Turn Timesheet logs into billable invoices." />;
+        case 'reconciliation':
+            return <Reconciliation />;
+        case 'qp':
+            return <QPReportParser />;
         case 'itp':
             return <ITPParser />;
         case 'rates':
             return <RateManager />;
         case 'templates':
             return <TemplateEditor />;
+        case 'cost':
+            return <CostTracker />;
         default:
             return <div>Select a module</div>;
     }
