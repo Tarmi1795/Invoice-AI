@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Upload, FileDiff, CheckCircle2, AlertTriangle, ArrowRightLeft, FileText, Loader2, X } from 'lucide-react';
-import { reconcileDocuments } from '../services/geminiService';
+import { reconcileDocuments } from '../services/ai/reconciliation';
 import { ReconResult } from '../types';
 
 interface FileState {

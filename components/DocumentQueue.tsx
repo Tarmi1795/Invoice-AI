@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { Upload, FileText, Loader2, AlertCircle, Eye, ArrowRight, Layout, Check, X, Download } from 'lucide-react';
-import { processDocument } from '../services/geminiService';
+import { processFinancialDocument } from '../services/ai/invoice';
 import { InvoiceData, TemplateData } from '../types';
 import { listTemplates, fetchRates, RateItem } from '../services/supabaseClient';
 import { DEFAULT_TEMPLATE } from '../utils/defaults';
@@ -67,8 +67,8 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
             const base64String = reader.result as string;
             const base64Content = base64String.split(',')[1];
             
-            // AI Processing
-            const aiData = await processDocument(base64Content, item.file.type, type);
+            // AI Processing - using new decoupled function
+            const aiData = await processFinancialDocument(base64Content, item.file.type, type);
             
             // Get Selected Template
             const activeTemplate = templates.find(t => t.id === selectedTemplateId) || DEFAULT_TEMPLATE;

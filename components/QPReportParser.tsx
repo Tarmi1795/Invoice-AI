@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Upload, Microscope, FileDown, Loader2, AlertCircle, CheckCircle2, Table } from 'lucide-react';
-import { parseQPReport } from '../services/geminiService';
+import { parseQPReport } from '../services/ai/qp';
 import { QPReportData } from '../types';
 
 interface QPItem {

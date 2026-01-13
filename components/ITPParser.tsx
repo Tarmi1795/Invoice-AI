@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Upload, ScanLine, FileDown, Loader2, AlertCircle, Download } from 'lucide-react';
-import { processDocument } from '../services/geminiService';
+import { parseITP } from '../services/ai/itp';
 import JSZip from 'jszip';
 
 interface ITPItem {
@@ -23,7 +23,7 @@ const ITPParser: React.FC = () => {
             await new Promise((resolve) => { reader.onload = resolve; });
             const base64Content = (reader.result as string).split(',')[1];
             
-            const result = await processDocument(base64Content, item.file.type, 'itp');
+            const result = await parseITP(base64Content, item.file.type);
             setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success', data: result } : q));
         } catch (err) {
             setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error' } : q));
