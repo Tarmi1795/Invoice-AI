@@ -2,24 +2,26 @@
 import { Type, Schema } from "@google/genai";
 import { ai, trackCost, parseJSON, DEFAULT_MODEL } from "./utils";
 import { LearningEngine } from "./LearningEngine";
-import { ConfidenceAwareResult } from "../../types";
+import { ConfidenceAwareResult, ITPData } from "../../types";
 
+// Schema is relaxed (not all fields required) to ensure we get partial data instead of failure.
 const ITP_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
-    items: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          reference: { type: Type.STRING, description: "ITP Reference or Item No" },
-          activity: { type: Type.STRING, description: "Description of activity or inspection" },
-          date: { type: Type.STRING },
-          status: { type: Type.STRING, description: "Status or Result (e.g. Accepted)" }
-        }
-      }
-    }
-  }
+    itpNo: { type: Type.STRING },
+    location: { type: Type.STRING },
+    inspectorName: { type: Type.STRING },
+    itpEndDate: { type: Type.STRING },
+    revision: { type: Type.STRING },
+    itpBudget: { type: Type.STRING },
+    designation: { type: Type.STRING },
+    duration: { type: Type.STRING },
+    rate: { type: Type.STRING },
+    otRate: { type: Type.STRING },
+    poNumber: { type: Type.STRING },
+  },
+  // Removed strict requirements so one missing field doesn't break the whole parser
+  required: ["itpNo"] 
 };
 
 const CONTAINER_SCHEMA: Schema = {
@@ -29,39 +31,51 @@ const CONTAINER_SCHEMA: Schema = {
         confidence_scores: {
             type: Type.OBJECT,
             properties: {
-                overall_accuracy: { type: Type.NUMBER }
+                itpNo: { type: Type.NUMBER },
+                inspectorName: { type: Type.NUMBER },
+                rate: { type: Type.NUMBER },
+                overall: { type: Type.NUMBER }
             }
         },
-        extracted_text: { type: Type.STRING, description: "Raw text of the ITP table region." }
+        extracted_text: { type: Type.STRING, description: "Raw text context used for extraction." }
     }
 };
 
-export interface ITPData {
-    items: Array<{
-        reference: string;
-        activity: string;
-        date: string;
-        status: string;
-    }>
-}
-
-export const parseITP = async (base64Data: string, mimeType: string): Promise<ConfidenceAwareResult<ITPData>> => {
+export const parseITP = async (input: string, mimeType?: string): Promise<ConfidenceAwareResult<ITPData>> => {
   try {
-    const basePrompt = `You are an Inspection Engineer AI. Parse this ITP (Inspection Test Plan) or Inspection Report. Extract all inspection activities, dates, references, and statuses into a list.
-    
-    Return 'extracted_text' containing the raw text segments you used for future training.
-    Return 'confidence_scores' with an 'overall_accuracy' estimate (0-1).`;
+    const basePrompt = `Analyze the ITP document (Instruction to Proceed) and extract contract details.
+
+KEY EXTRACTION RULES:
+- **ITP No**: Look for "INSTRUCTION TO PROCEED NO.:", "ITP No", or "Reference" at the top.
+- **LOCATION**: Look for "Delivery Place", "Work Location", or "Services Location".
+- **INSPECTOR**: Look for "Attn:", "Inspector Name", "Short Description", or person names listed in the item table.
+- **ITP End Date**: Look for "Completion Date", "Valid until", or "End Date".
+- **Revision**: Look for "Revision", "Rev", or the suffix of the ITP number.
+- **Designation**: Look for "ITP Title", "Item Description", "Short Description" (e.g. "Senior Welding Inspector").
+- **Rate**: Look for "Unit Rate", "Daily Rate", "Hourly Rate". If the rate column is empty, look for text like "Rate as per contract" or check for a total amount divided by quantity. If unknown, return "0".
+- **PO#**: Look for "Contract Reference", "SAP Account Code", "Purchase Order", or "Contract No".
+
+If a field is visually missing or blank, return an empty string or "0". Do not hallucinate values.`;
 
     const adaptivePrompt = await LearningEngine.buildAdaptivePrompt('itp_parser', basePrompt);
+
+    const parts: any[] = [];
+    if (mimeType) {
+        // Multimodal input (base64 image/pdf) - PREFERRED
+        parts.push({ inlineData: { data: input, mimeType: mimeType } });
+        parts.push({ text: adaptivePrompt });
+    } else {
+        // Text-only input (fallback)
+        parts.push({ text: "Here is the document text content:" });
+        parts.push({ text: input });
+        parts.push({ text: adaptivePrompt });
+    }
 
     const response = await ai.models.generateContent({
       model: DEFAULT_MODEL,
       contents: {
         role: 'user',
-        parts: [
-          { inlineData: { data: base64Data, mimeType: mimeType } },
-          { text: adaptivePrompt },
-        ],
+        parts: parts,
       },
       config: {
         responseMimeType: "application/json",
@@ -77,8 +91,8 @@ export const parseITP = async (base64Data: string, mimeType: string): Promise<Co
 
     return {
         data: result.data,
-        confidence_scores: result.confidence_scores,
-        average_confidence: result.confidence_scores?.overall_accuracy || 0.8,
+        confidence_scores: result.confidence_scores || {},
+        average_confidence: result.confidence_scores?.overall || 0.85,
         extracted_text: result.extracted_text
     };
 

@@ -140,6 +140,21 @@ export interface QPReportData {
   distance: string;
 }
 
+// Updated ITP Data Schema
+export interface ITPData {
+    itpNo: string;
+    location: string;
+    inspectorName: string;
+    itpEndDate: string;
+    revision: string;
+    itpBudget: string;
+    designation: string;
+    duration: string;
+    rate: string;
+    otRate: string;
+    poNumber: string;
+}
+
 // --- Self-Learning / Training Types ---
 
 export type ProcessingStatus = 'pending' | 'verified' | 'needs_review';

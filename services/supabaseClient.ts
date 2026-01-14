@@ -98,6 +98,15 @@ export const insertRates = async (rates: RateItem[]) => {
     if (error) throw error;
 };
 
+/**
+ * Inserts new rates or updates existing ones if the reference_no matches.
+ * REQUIRES: A unique constraint on 'reference_no' column in the database.
+ */
+export const upsertRates = async (rates: RateItem[]) => {
+    const { error } = await supabase.from('rates').upsert(rates, { onConflict: 'reference_no' });
+    if (error) throw error;
+};
+
 export const updateRate = async (rate: RateItem) => {
     if (!rate.id) throw new Error("Rate ID is required for update");
     const { id, ...updates } = rate;
