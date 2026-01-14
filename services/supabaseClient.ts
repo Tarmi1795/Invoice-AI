@@ -1,11 +1,16 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { TemplateData, UsageLog } from '../types';
+import { TemplateData, UsageLog, TrainingExample, ModuleId } from '../types';
 
 const supabaseUrl = 'https://zmpnigavsyggfhdfdeht.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InptcG5pZ2F2c3lnZ2ZoZGZkZWh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxMjY5NzEsImV4cCI6MjA4MzcwMjk3MX0.yU_yJ2ke8vg2C6JACykkIyW4sl0X2JyDGGRCHN5MeIM';
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+/*
+=== SQL SETUP FOR SELF-LEARNING MODULE ===
+Please refer to SUPABASE_SETUP.md for the SQL query.
+*/
 
 // --- Templates ---
 export const listTemplates = async (): Promise<TemplateData[]> => {
@@ -138,5 +143,54 @@ export const fetchUsageLogs = async (days: number = 30): Promise<UsageLog[]> => 
     } catch (e) {
         console.warn('Failed to fetch usage logs');
         return [];
+    }
+};
+
+// --- Self-Learning / Training Data ---
+
+/**
+ * Fetches similar past verified examples to help the AI context.
+ */
+export const getLearningExamples = async (moduleId: ModuleId, limit: number = 3): Promise<TrainingExample[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('training_data')
+            .select('*')
+            .eq('module_id', moduleId)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) {
+            console.warn('Error fetching training examples:', error.message);
+            return [];
+        }
+        
+        return (data || []) as TrainingExample[];
+    } catch (e) {
+        console.warn('Training data fetch failed (likely table missing)');
+        return [];
+    }
+};
+
+/**
+ * Saves a "Golden Record" - a human-verified input/output pair
+ * used to teach the AI in future prompts.
+ */
+export const saveLearningExample = async (moduleId: ModuleId, input: string, output: any, userId?: string) => {
+    try {
+        const { error } = await supabase
+            .from('training_data')
+            .insert({
+                module_id: moduleId,
+                input_context: input,
+                output_json: output,
+                user_id: userId || 'anon'
+            });
+
+        if (error) throw error;
+        console.log("Learning example saved successfully");
+    } catch (e) {
+        console.error("Failed to save learning example:", e);
+        throw e;
     }
 };

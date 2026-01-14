@@ -139,3 +139,27 @@ export interface QPReportData {
   hours: string;
   distance: string;
 }
+
+// --- Self-Learning / Training Types ---
+
+export type ProcessingStatus = 'pending' | 'verified' | 'needs_review';
+
+// Updated Module IDs for the system
+export type ModuleId = 'qp_report' | 'itp_parser' | 'invoice_summary' | 'reconciliation';
+
+export interface TrainingExample {
+  id: string;
+  module_id: ModuleId;
+  input_context: string; // The raw text/content used for extraction
+  output_json: any;      // The human-verified correct JSON
+  user_id?: string;
+  created_at?: string;
+}
+
+// Confidence wrapper for AI results
+export type ConfidenceAwareResult<T> = {
+  data: T;
+  confidence_scores: Record<keyof T, number>; // 0.0 to 1.0 score per field
+  average_confidence: number;
+  extracted_text?: string; // The raw text extracted, used for training context
+};

@@ -1,7 +1,8 @@
 
 import { Type, Schema } from "@google/genai";
-import { QPReportData } from "../../types";
+import { QPReportData, ConfidenceAwareResult } from "../../types";
 import { ai, trackCost, parseJSON, DEFAULT_MODEL } from "./utils";
+import { LearningEngine } from "./LearningEngine";
 
 const QP_REPORT_SCHEMA: Schema = {
   type: Type.OBJECT,
@@ -18,9 +19,35 @@ const QP_REPORT_SCHEMA: Schema = {
   required: ["vendor", "country", "date_start", "date_end", "designation", "travel", "hours", "distance"]
 };
 
-export const parseQPReport = async (base64Data: string, mimeType: string): Promise<QPReportData> => {
+// Wrapper schema to include confidence scores and training context
+const QP_CONTAINER_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    data: QP_REPORT_SCHEMA,
+    confidence_scores: {
+      type: Type.OBJECT,
+      properties: {
+        vendor: { type: Type.NUMBER },
+        country: { type: Type.NUMBER },
+        date_start: { type: Type.NUMBER },
+        date_end: { type: Type.NUMBER },
+        designation: { type: Type.NUMBER },
+        travel: { type: Type.NUMBER },
+        hours: { type: Type.NUMBER },
+        distance: { type: Type.NUMBER }
+      }
+    },
+    extracted_text: {
+      type: Type.STRING,
+      description: "A raw text summary of the relevant parts of the document used for extraction. This will be used for future training."
+    }
+  },
+  required: ["data", "confidence_scores", "extracted_text"]
+};
+
+export const parseQPReport = async (base64Data: string, mimeType: string): Promise<ConfidenceAwareResult<QPReportData>> => {
     try {
-        const prompt = `Role: You are a highly accurate Document Extraction Specialist specializing in industrial inspection reports.
+        const basePrompt = `Role: You are a highly accurate Document Extraction Specialist specializing in industrial inspection reports.
 
 TASK: Extract specific metadata and logistics data from the provided Third-Party Inspection (TPI) report.
 
@@ -37,7 +64,13 @@ EXTRACTION LOGIC & RULES:
    - Capture "INSPECTION HOURS" including units (e.g., 5 Hrs, 8 hours x 2 Days).
    - Capture "TOTAL DISTANCE" including units (e.g., 78 kms, 354 Kms x 2 Days).
 
-Output as JSON.`;
+IMPORTANT:
+- You must return 'confidence_scores' (0.0 to 1.0) for every field based on how clearly it was visible or matched.
+- You must return 'extracted_text' containing the raw text segments you used to make these decisions.
+`;
+
+        // Inject past learnings
+        const adaptivePrompt = await LearningEngine.buildAdaptivePrompt('qp_report', basePrompt);
 
         const response = await ai.models.generateContent({
             model: DEFAULT_MODEL,
@@ -45,19 +78,30 @@ Output as JSON.`;
                 role: 'user',
                 parts: [
                     { inlineData: { data: base64Data, mimeType: mimeType } },
-                    { text: prompt }
+                    { text: adaptivePrompt }
                 ]
             },
             config: {
                 responseMimeType: "application/json",
-                responseSchema: QP_REPORT_SCHEMA,
+                responseSchema: QP_CONTAINER_SCHEMA,
                 temperature: 0.1,
             }
         });
 
         trackCost('qp_report', DEFAULT_MODEL, response.usageMetadata);
 
-        return parseJSON(response.text);
+        const result = parseJSON(response.text);
+        
+        // Calculate average confidence
+        const scores = Object.values(result.confidence_scores) as number[];
+        const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+
+        return {
+            data: result.data,
+            confidence_scores: result.confidence_scores,
+            average_confidence: avg,
+            extracted_text: result.extracted_text
+        };
 
     } catch (error) {
         console.error("QP Report Parse Error:", error);

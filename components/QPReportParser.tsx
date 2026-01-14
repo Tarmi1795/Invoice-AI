@@ -1,14 +1,15 @@
 
 import React, { useState, useCallback } from 'react';
-import { Upload, Microscope, FileDown, Loader2, AlertCircle, CheckCircle2, Table } from 'lucide-react';
+import { Upload, Microscope, FileDown, Loader2, AlertCircle, CheckCircle2, Table, Eye, Pencil } from 'lucide-react';
 import { parseQPReport } from '../services/ai/qp';
-import { QPReportData } from '../types';
+import { QPReportData, ConfidenceAwareResult } from '../types';
+import { SmartReviewDashboard } from './SmartReviewDashboard';
 
 interface QPItem {
     id: string;
     file: File;
     status: 'pending' | 'processing' | 'success' | 'error';
-    data?: QPReportData;
+    result?: ConfidenceAwareResult<QPReportData>;
     errorMsg?: string;
 }
 
@@ -16,6 +17,9 @@ const QPReportParser: React.FC = () => {
     const [queue, setQueue] = useState<QPItem[]>([]);
     const [dragActive, setDragActive] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    
+    // Review State
+    const [reviewItem, setReviewItem] = useState<QPItem | null>(null);
 
     const processItem = async (item: QPItem) => {
         try {
@@ -25,7 +29,7 @@ const QPReportParser: React.FC = () => {
             const base64Content = (reader.result as string).split(',')[1];
             
             const result = await parseQPReport(base64Content, item.file.type);
-            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success', data: result } : q));
+            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success', result: result } : q));
         } catch (err) {
             console.error(err);
             setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', errorMsg: 'Failed to extract data' } : q));
@@ -61,7 +65,7 @@ const QPReportParser: React.FC = () => {
     };
 
     const handleExportCSV = () => {
-        const successfulItems = queue.filter(item => item.status === 'success' && item.data);
+        const successfulItems = queue.filter(item => item.status === 'success' && item.result);
         if (successfulItems.length === 0) {
             alert("No data to export");
             return;
@@ -78,27 +82,26 @@ const QPReportParser: React.FC = () => {
                 "Designation",
                 "Travel (To/From)",
                 "Hours",
-                "Distance"
+                "Distance",
+                "Confidence"
             ];
 
-            // Helper to escape CSV values correctly (handle quotes inside value)
             const escape = (val: string) => `"${(val || '').toString().replace(/"/g, '""')}"`;
 
             const rows = successfulItems.map(item => [
                 escape(item.file.name),
-                escape(item.data?.vendor || ''),
-                escape(item.data?.country || ''),
-                escape(item.data?.date_start || ''),
-                escape(item.data?.date_end || ''),
-                escape(item.data?.designation || ''),
-                escape(item.data?.travel || ''),
-                escape(item.data?.hours || ''),
-                escape(item.data?.distance || '')
+                escape(item.result?.data?.vendor || ''),
+                escape(item.result?.data?.country || ''),
+                escape(item.result?.data?.date_start || ''),
+                escape(item.result?.data?.date_end || ''),
+                escape(item.result?.data?.designation || ''),
+                escape(item.result?.data?.travel || ''),
+                escape(item.result?.data?.hours || ''),
+                escape(item.result?.data?.distance || ''),
+                escape(((item.result?.average_confidence || 0) * 100).toFixed(0) + '%')
             ]);
 
             const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-            
-            // Use Blob for robust download (handles special characters like # better than data URI)
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             
@@ -117,7 +120,57 @@ const QPReportParser: React.FC = () => {
         }
     };
 
+    const handleVerify = (verifiedData: QPReportData) => {
+        if (!reviewItem) return;
+        setQueue(prev => prev.map(q => {
+            if (q.id === reviewItem.id && q.result) {
+                // Update with verified data and perfect confidence since user verified it
+                return {
+                    ...q,
+                    result: {
+                        ...q.result,
+                        data: verifiedData,
+                        average_confidence: 1.0,
+                        confidence_scores: Object.keys(verifiedData).reduce((acc, key) => ({...acc, [key]: 1.0}), {} as any)
+                    }
+                };
+            }
+            return q;
+        }));
+        setReviewItem(null);
+    };
+
     const successfulCount = queue.filter(q => q.status === 'success').length;
+
+    // --- Render Review Mode ---
+    if (reviewItem && reviewItem.result) {
+        return (
+            <div className="max-w-4xl mx-auto space-y-4">
+                 <button 
+                    onClick={() => setReviewItem(null)}
+                    className="text-zinc-400 hover:text-white mb-4 text-sm flex items-center gap-1"
+                 >
+                    ← Back to List
+                 </button>
+                 <SmartReviewDashboard 
+                    moduleId="qp_report"
+                    result={reviewItem.result}
+                    onVerify={handleVerify}
+                    onCancel={() => setReviewItem(null)}
+                    fieldLabels={{
+                        vendor: "Vendor",
+                        country: "Country",
+                        date_start: "Start Date",
+                        date_end: "End Date",
+                        designation: "Inspector Designation",
+                        travel: "Travel Details",
+                        hours: "Hours",
+                        distance: "Distance"
+                    }}
+                 />
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-8 animate-fadeIn">
@@ -126,7 +179,9 @@ const QPReportParser: React.FC = () => {
                     <Microscope className="w-8 h-8 text-orange-500" /> QP Report Parser
                 </h1>
                 <p className="text-zinc-400 mt-2">
-                    Batch process QC Surveillance Reports to extract vendor, date, and logistics data into CSV.
+                    Batch process QC Surveillance Reports to extract vendor, date, and logistics data.
+                    <br/>
+                    <span className="text-orange-500 text-xs font-bold uppercase tracking-wider">Now with Self-Learning</span>
                 </p>
             </div>
 
@@ -177,13 +232,14 @@ const QPReportParser: React.FC = () => {
                                     <th className="px-6 py-3">Status</th>
                                     <th className="px-6 py-3">Filename</th>
                                     <th className="px-6 py-3">Vendor</th>
-                                    <th className="px-6 py-3">Dates</th>
                                     <th className="px-6 py-3">Logistics</th>
+                                    <th className="px-6 py-3 text-center">Confidence</th>
+                                    <th className="px-6 py-3 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
                                 {queue.map((item) => (
-                                    <tr key={item.id} className="hover:bg-zinc-800/50">
+                                    <tr key={item.id} className="hover:bg-zinc-800/50 group">
                                         <td className="px-6 py-4">
                                             {item.status === 'processing' && <Loader2 className="w-4 h-4 text-orange-500 animate-spin" />}
                                             {item.status === 'success' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
@@ -194,28 +250,42 @@ const QPReportParser: React.FC = () => {
                                             {item.file.name}
                                         </td>
                                         <td className="px-6 py-4 text-zinc-400">
-                                            {item.data ? (
+                                            {item.result?.data ? (
                                                 <div className="flex flex-col">
-                                                    <span className="text-white">{item.data.vendor}</span>
-                                                    <span className="text-xs">{item.data.country}</span>
+                                                    <span className="text-white">{item.result.data.vendor}</span>
+                                                    <span className="text-xs">{item.result.data.country}</span>
                                                 </div>
                                             ) : '-'}
                                         </td>
                                         <td className="px-6 py-4 text-zinc-400">
-                                            {item.data ? (
-                                                <div className="flex flex-col">
-                                                    <span className="text-xs text-zinc-500">Start: <span className="text-zinc-300">{item.data.date_start}</span></span>
-                                                    <span className="text-xs text-zinc-500">End: <span className="text-zinc-300">{item.data.date_end}</span></span>
-                                                </div>
-                                            ) : '-'}
-                                        </td>
-                                        <td className="px-6 py-4 text-zinc-400">
-                                            {item.data ? (
+                                            {item.result?.data ? (
                                                 <div className="flex flex-col text-xs gap-1">
-                                                    <span className="bg-zinc-800 px-1.5 py-0.5 rounded w-fit">{item.data.hours}</span>
-                                                    <span className="bg-zinc-800 px-1.5 py-0.5 rounded w-fit">{item.data.distance}</span>
+                                                    <span className="bg-zinc-800 px-1.5 py-0.5 rounded w-fit">{item.result.data.hours}</span>
+                                                    <span className="bg-zinc-800 px-1.5 py-0.5 rounded w-fit">{item.result.data.distance}</span>
                                                 </div>
                                             ) : '-'}
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            {item.result ? (
+                                                <div className="flex items-center justify-center gap-1">
+                                                     <span className={`font-bold ${
+                                                         item.result.average_confidence > 0.9 ? 'text-green-500' : 
+                                                         item.result.average_confidence > 0.7 ? 'text-yellow-500' : 'text-red-500'
+                                                     }`}>
+                                                         {(item.result.average_confidence * 100).toFixed(0)}%
+                                                     </span>
+                                                </div>
+                                            ) : '-'}
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            {item.status === 'success' && (
+                                                <button 
+                                                    onClick={() => setReviewItem(item)}
+                                                    className="px-3 py-1.5 bg-zinc-800 hover:bg-orange-600 hover:text-white text-zinc-300 rounded-lg text-xs font-medium transition-all"
+                                                >
+                                                    Review & Train
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
