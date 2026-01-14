@@ -1,7 +1,8 @@
 
 import { Type, Schema } from "@google/genai";
-import { ReconResult } from "../../types";
+import { ReconResult, ConfidenceAwareResult } from "../../types";
 import { ai, trackCost, parseJSON, DEFAULT_MODEL } from "./utils";
+import { LearningEngine } from "./LearningEngine";
 
 const RECON_SCHEMA: Schema = {
   type: Type.OBJECT,
@@ -71,9 +72,23 @@ const RECON_SCHEMA: Schema = {
   }
 };
 
-export const reconcileDocuments = async (fileA: {data: string, type: string}, fileB: {data: string, type: string}): Promise<ReconResult> => {
+const CONTAINER_SCHEMA: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        data: RECON_SCHEMA,
+        confidence_scores: {
+            type: Type.OBJECT,
+            properties: {
+                match_accuracy: { type: Type.NUMBER }
+            }
+        },
+        extracted_text: { type: Type.STRING, description: "A brief summary of the comparison strategy used." }
+    }
+};
+
+export const reconcileDocuments = async (fileA: {data: string, type: string}, fileB: {data: string, type: string}): Promise<ConfidenceAwareResult<ReconResult>> => {
     try {
-        const prompt = `You are an expert Forensic Accountant AI.
+        const basePrompt = `You are an expert Forensic Accountant AI.
         
         TASK:
         Compare the transactions in FILE A against FILE B.
@@ -89,6 +104,8 @@ export const reconcileDocuments = async (fileA: {data: string, type: string}, fi
         
         Output strictly in the requested JSON schema.`;
 
+        const adaptivePrompt = await LearningEngine.buildAdaptivePrompt('reconciliation', basePrompt);
+
         const response = await ai.models.generateContent({
             model: DEFAULT_MODEL,
             contents: {
@@ -98,12 +115,12 @@ export const reconcileDocuments = async (fileA: {data: string, type: string}, fi
                     { inlineData: { data: fileA.data, mimeType: fileA.type } },
                     { text: "Here is FILE B:" },
                     { inlineData: { data: fileB.data, mimeType: fileB.type } },
-                    { text: prompt }
+                    { text: adaptivePrompt }
                 ]
             },
             config: {
                 responseMimeType: "application/json",
-                responseSchema: RECON_SCHEMA,
+                responseSchema: CONTAINER_SCHEMA,
                 temperature: 0.1,
                 maxOutputTokens: 20000,
             }
@@ -111,7 +128,14 @@ export const reconcileDocuments = async (fileA: {data: string, type: string}, fi
 
         trackCost('reconciliation', DEFAULT_MODEL, response.usageMetadata);
 
-        return parseJSON(response.text);
+        const result = parseJSON(response.text);
+
+        return {
+            data: result.data,
+            confidence_scores: result.confidence_scores,
+            average_confidence: result.confidence_scores?.match_accuracy || 0.85,
+            extracted_text: result.extracted_text
+        };
 
     } catch (error) {
         console.error("Reconciliation Error:", error);

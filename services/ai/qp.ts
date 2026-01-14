@@ -58,11 +58,11 @@ EXTRACTION LOGIC & RULES:
    - Look at the "DATE OF VISIT" field.
    - If a single date is listed (e.g., 02.10.2025), both start and end are that date.
    - If multiple dates or a range are listed (e.g., 11.12.2025 & 12.12.2025), assign the first to "start" and the last to "end".
-4. Inspector Designation: Find the "INSPECTED BY" section (usually at the bottom of Page 2). Extract the designation in parentheses, such as "Sr. Inspection Engineer-AS".
+4. Inspector Designation: Find the "INSPECTED BY" section (usually at the bottom of Page 2 or 3). Extract the designation in parentheses, such as "Sr. Inspection Engineer-AS".
 5. Travel, Hours, Distance: These are found in the "INSPECTION DETAILS" table on Page 2.
    - Capture "TRAVEL(TO/FROM)" exactly as written.
-   - Capture "INSPECTION HOURS" including units (e.g., 5 Hrs, 8 hours x 2 Days).
-   - Capture "TOTAL DISTANCE" including units (e.g., 78 kms, 354 Kms x 2 Days).
+   - Capture "INSPECTION HOURS" Not including units and perform mathematical equation (e.g., 8 hours x 2 Days, returns 16).
+   - Capture "TOTAL DISTANCE" Not including units and perform mathematical equation (e.g., 354 Kms x 2 Days, returns 708).
 
 IMPORTANT:
 - You must return 'confidence_scores' (0.0 to 1.0) for every field based on how clearly it was visible or matched.

@@ -29,7 +29,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeModule, onModuleChange }) => {
                 <GlitchLogo />
 
                 <div className="text-[10px] font-bold text-orange-500 uppercase tracking-[0.2em] relative z-20">
-                    AI Agent System
+                    VELOSI AI Agent 
                 </div>
             </div>
             

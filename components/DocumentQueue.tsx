@@ -1,19 +1,21 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, FileText, Loader2, AlertCircle, Eye, ArrowRight, Layout, Check, X, Download } from 'lucide-react';
+import { Upload, FileText, Loader2, AlertCircle, Eye, ArrowRight, Layout, Check, X, Download, BrainCircuit } from 'lucide-react';
 import { processFinancialDocument } from '../services/ai/invoice';
-import { InvoiceData, TemplateData } from '../types';
-import { listTemplates, fetchRates, RateItem } from '../services/supabaseClient';
+import { InvoiceData, TemplateData, ConfidenceAwareResult, InvoiceMetadata } from '../types';
+import { listTemplates, fetchRates, RateItem, saveLearningExample } from '../services/supabaseClient';
 import { DEFAULT_TEMPLATE } from '../utils/defaults';
 import InvoiceSummary from './InvoiceSummary';
 import { generateInvoicePDF } from '../utils/pdfGenerator';
+import { SmartReviewDashboard } from './SmartReviewDashboard';
+import { getSimilarity } from '../utils/fuzzy';
 import JSZip from 'jszip';
 
 interface QueueItem {
     id: string;
     file: File;
     status: 'pending' | 'processing' | 'success' | 'error';
-    result?: InvoiceData;
+    result?: ConfidenceAwareResult<InvoiceData>;
     message?: string;
 }
 
@@ -37,6 +39,9 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [isZipping, setIsZipping] = useState(false);
     
+    // Review/Training State
+    const [reviewItem, setReviewItem] = useState<QueueItem | null>(null);
+
     // Template & Rate State
     const [templates, setTemplates] = useState<TemplateData[]>([]);
     const [allRates, setAllRates] = useState<RateItem[]>([]);
@@ -67,8 +72,9 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
             const base64String = reader.result as string;
             const base64Content = base64String.split(',')[1];
             
-            // AI Processing - using new decoupled function
-            const aiData = await processFinancialDocument(base64Content, item.file.type, type);
+            // AI Processing
+            const aiResult = await processFinancialDocument(base64Content, item.file.type, type);
+            const aiData = aiResult.data;
             
             // Get Selected Template
             const activeTemplate = templates.find(t => t.id === selectedTemplateId) || DEFAULT_TEMPLATE;
@@ -78,16 +84,20 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
 
             // --- RATE MATCHING LOGIC (For Timesheets) ---
             if (type === 'timesheet' && aiData.metadata?.clientRef) {
-                const docRef = aiData.metadata.clientRef.trim().toLowerCase();
+                const docRef = aiData.metadata.clientRef.trim();
                 
-                // Find all rates belonging to this Client Reference / Contract
-                matchedRates = allRates.filter(r => 
-                    r.reference_no.trim().toLowerCase() === docRef || 
-                    docRef.includes(r.reference_no.trim().toLowerCase())
-                );
+                // FUZZY MATCHING for Initial Scan (>97% Match)
+                matchedRates = allRates.filter(r => {
+                    const rateRef = r.reference_no.trim();
+                    const similarity = getSimilarity(docRef, rateRef);
+                    // Match if > 97% similarity OR strict substring match
+                    return similarity >= 0.97 || docRef.toLowerCase().includes(rateRef.toLowerCase());
+                });
 
                 if (matchedRates.length > 0) {
-                   // Instead of auto-applying, we trigger the suggestion modal
+                   // Sort by length/similarity to prioritize exact matches
+                   matchedRates.sort((a, b) => getSimilarity(docRef, b.reference_no) - getSimilarity(docRef, a.reference_no));
+
                    setActiveSuggestion({
                        queueId: item.id,
                        aiRef: aiData.metadata.clientRef,
@@ -121,7 +131,12 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
                 originalFileName: item.file.name
             };
 
-            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success', result: mergedData } : q));
+            const finalResult: ConfidenceAwareResult<InvoiceData> = {
+                ...aiResult,
+                data: mergedData
+            };
+
+            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success', result: finalResult } : q));
         } catch (err) {
             console.error(err);
             setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', message: 'Analysis failed' } : q));
@@ -133,47 +148,67 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
         
         const { queueId, matchedRates, invoiceNumber, originalData } = activeSuggestion;
         
-        // Apply Rates Logic
+        // --- SMART RATE MATCHING LOGIC ---
+        // Duplicate logic here just for the modal "Apply" button. 
+        // Note: Similar logic exists in InvoiceSummary for manual edits.
         const newSummary = originalData.summary.map(line => {
-            const match = matchedRates.find(r => 
-                line.description.toLowerCase().includes(r.description.toLowerCase())
-            );
+            const lineDesc = line.description.toLowerCase().trim();
+
+            let match = matchedRates.find(r => {
+                const rateDesc = r.description.toLowerCase().trim();
+                if (lineDesc.includes(rateDesc)) return true;
+                if (rateDesc.includes(lineDesc) && lineDesc.length > 4) return true;
+                const parts = rateDesc.split(/[-/]/).map(p => p.trim()).filter(p => p.length > 3);
+                const genericWords = ['inspector', 'welding', 'piping', 'senior', 'junior', 'engineer'];
+                const hasSignificantMatch = parts.some(part => {
+                     if (genericWords.includes(part)) return false; 
+                     return lineDesc.includes(part);
+                });
+                return hasSignificantMatch;
+            });
+
+            if (!match && matchedRates.length > 0) {
+                match = matchedRates[0]; // Apply best match if no specific description match
+            }
 
             if (match) {
-                const isOT = line.description.toLowerCase().includes('overtime') || 
-                                line.description.toLowerCase().includes('ot') ||
-                                line.description.toLowerCase().includes('o.t');
-                
+                const isOT = lineDesc.includes('overtime') || lineDesc.includes('ot') || lineDesc.includes('o.t');
                 const appliedRate = (isOT && match.ot_rate && match.ot_rate > 0) ? match.ot_rate : match.rate;
-                
-                return {
-                    ...line,
-                    rate: appliedRate,
-                    unit: match.unit || line.unit,
-                    total: line.quantity * appliedRate
-                };
+                if (appliedRate > 0) {
+                    const quantity = line.quantity || 0;
+                    return {
+                        ...line,
+                        rate: appliedRate,
+                        unit: match.unit || line.unit,
+                        total: quantity * appliedRate
+                    };
+                }
             }
             return line;
         });
 
         const newGrandTotal = newSummary.reduce((acc, curr) => acc + curr.total, 0);
         let newCurrency = originalData.currency;
-        if (matchedRates[0].currency) newCurrency = matchedRates[0].currency;
+        if (matchedRates[0]?.currency) newCurrency = matchedRates[0].currency;
 
         // Update Queue Item
         setQueue(prev => prev.map(q => {
             if (q.id === queueId && q.result) {
+                const updatedData = {
+                    ...q.result.data,
+                    summary: newSummary,
+                    grandTotal: newGrandTotal,
+                    currency: newCurrency,
+                    metadata: {
+                        ...q.result.data.metadata,
+                        invoiceNumber: invoiceNumber
+                    }
+                };
                 return {
                     ...q,
                     result: {
                         ...q.result,
-                        summary: newSummary,
-                        grandTotal: newGrandTotal,
-                        currency: newCurrency,
-                        metadata: {
-                            ...q.result.metadata,
-                            invoiceNumber: invoiceNumber // Apply user input invoice number
-                        }
+                        data: updatedData
                     }
                 };
             }
@@ -228,40 +263,65 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
         try {
             const zip = new JSZip();
             
-            // Generate PDFs sequentially
             for (const item of successfulItems) {
                 if (!item.result) continue;
-                
-                // Use the utility to generate PDF object
-                const doc = await generateInvoicePDF(item.result);
-                
-                // Get PDF as ArrayBuffer
+                const doc = await generateInvoicePDF(item.result.data);
                 const pdfBlob = doc.output('arraybuffer');
-                
-                // Filename
-                let filename = item.result.metadata?.invoiceNumber || item.file.name.split('.')[0];
+                let filename = item.result.data.metadata?.invoiceNumber || item.file.name.split('.')[0];
                 filename = filename.replace(/[^a-z0-9]/gi, '_') + '.pdf';
-                
                 zip.file(filename, pdfBlob);
             }
 
-            // Generate ZIP
             const content = await zip.generateAsync({ type: "blob" });
-            
-            // Trigger download
             const link = document.createElement("a");
             link.href = URL.createObjectURL(content);
             link.download = `${type}_batch_${new Date().toISOString().slice(0,10)}.zip`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
         } catch (error) {
             console.error("Batch download failed:", error);
             alert("Failed to create batch download zip.");
         } finally {
             setIsZipping(false);
         }
+    };
+
+    // --- NEW: Unified Training Handler ---
+    const handleInvoiceTrain = async (correctedData: InvoiceData) => {
+        // Find the active item to get its original extraction text (if available)
+        const activeItem = queue.find(q => q.id === selectedItemId);
+        
+        if (!activeItem || !activeItem.result?.extracted_text) {
+             console.warn("No extraction context found for training. Saving only corrected data locally.");
+        } else {
+             // Save to Supabase
+             // We use 'invoice_summary' as the module ID for general invoice/timesheet learning
+             await saveLearningExample('invoice_summary', activeItem.result.extracted_text, correctedData);
+        }
+
+        // Update local queue with corrected data
+        setQueue(prev => prev.map(q => {
+            if (q.id === selectedItemId && q.result) {
+                return {
+                    ...q,
+                    result: {
+                        ...q.result,
+                        data: correctedData,
+                        confidence_scores: {
+                            ...q.result.confidence_scores,
+                            // Assume high confidence since human corrected it
+                            date: 1.0,
+                            invoiceNumber: 1.0,
+                            grandTotal: 1.0,
+                            vendorName: 1.0
+                        },
+                        average_confidence: 1.0
+                    }
+                };
+            }
+            return q;
+        }));
     };
 
     const selectedItem = queue.find(q => q.id === selectedItemId);
@@ -275,7 +335,11 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
                 >
                     <ArrowRight className="w-4 h-4 mr-1 rotate-180" /> Back to Queue
                 </button>
-                <InvoiceSummary data={selectedItem.result} />
+                <InvoiceSummary 
+                    data={selectedItem.result.data} 
+                    onTrain={handleInvoiceTrain}
+                    availableRates={allRates} // Pass all rates to editor
+                />
             </div>
         );
     }
@@ -291,7 +355,6 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
                 </div>
                 
                 <div className="flex flex-col items-end gap-2">
-                    {/* Template Selector */}
                     <div className="w-64">
                         <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Use Template</label>
                         <div className="relative">
@@ -366,7 +429,14 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
                                     </div>
                                     <div>
                                         <p className="text-sm font-medium text-zinc-200">{item.file.name}</p>
-                                        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{item.status}</p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{item.status}</p>
+                                            {item.result && (
+                                                <span className={`text-[10px] px-1 rounded ${item.result.average_confidence > 0.8 ? 'bg-green-900 text-green-400' : 'bg-yellow-900 text-yellow-400'}`}>
+                                                    {(item.result.average_confidence * 100).toFixed(0)}% Conf.
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-3">
@@ -374,9 +444,10 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
                                     {item.status === 'success' && (
                                         <button 
                                             onClick={() => setSelectedItemId(item.id)}
-                                            className="flex items-center px-3 py-1.5 bg-orange-500/10 text-orange-500 text-sm font-medium rounded-lg hover:bg-orange-500 hover:text-white transition-all"
+                                            className="flex items-center px-3 py-1.5 bg-zinc-800 text-zinc-300 text-sm font-medium rounded-lg hover:bg-orange-500 hover:text-white transition-all border border-zinc-700 hover:border-orange-500"
                                         >
-                                            <Eye className="w-4 h-4 mr-2" /> View Result
+                                            <BrainCircuit className="w-4 h-4 mr-2" />
+                                            Verify & Train
                                         </button>
                                     )}
                                     {item.status === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
@@ -387,7 +458,7 @@ const DocumentQueue: React.FC<DocumentQueueProps> = ({ type, title, description 
                 </div>
             )}
 
-            {/* Suggested ITP Modal */}
+            {/* Suggested ITP Modal (Initial Scan) */}
             {activeSuggestion && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fadeIn">
                     <div className="bg-zinc-900 w-full max-w-lg rounded-xl shadow-2xl border border-zinc-800 overflow-hidden">

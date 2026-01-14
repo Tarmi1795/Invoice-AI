@@ -1,20 +1,27 @@
 
 import React, { useState, useCallback } from 'react';
-import { Upload, ScanLine, FileDown, Loader2, AlertCircle, Download } from 'lucide-react';
-import { parseITP } from '../services/ai/itp';
+import { Upload, ScanLine, FileDown, Loader2, AlertCircle, Download, BrainCircuit, Save, X } from 'lucide-react';
+import { parseITP, ITPData } from '../services/ai/itp';
+import { ConfidenceAwareResult } from '../types';
+import { saveLearningExample } from '../services/supabaseClient';
 import JSZip from 'jszip';
 
 interface ITPItem {
     id: string;
     file: File;
     status: 'pending' | 'processing' | 'success' | 'error';
-    data?: any;
+    result?: ConfidenceAwareResult<ITPData>;
 }
 
 const ITPParser: React.FC = () => {
     const [queue, setQueue] = useState<ITPItem[]>([]);
     const [dragActive, setDragActive] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
+    
+    // Editing State
+    const [editingItem, setEditingItem] = useState<ITPItem | null>(null);
+    const [editText, setEditText] = useState('');
+    const [isTraining, setIsTraining] = useState(false);
 
     const processItem = async (item: ITPItem) => {
         try {
@@ -24,7 +31,7 @@ const ITPParser: React.FC = () => {
             const base64Content = (reader.result as string).split(',')[1];
             
             const result = await parseITP(base64Content, item.file.type);
-            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success', data: result } : q));
+            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success', result: result } : q));
         } catch (err) {
             setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error' } : q));
         }
@@ -59,10 +66,10 @@ const ITPParser: React.FC = () => {
     };
 
     const getCSVContent = (item: ITPItem): string | null => {
-        if (!item.data?.items) return null;
+        if (!item.result?.data?.items) return null;
         
         const headers = ["Reference", "Activity", "Date", "Status"];
-        const rows = item.data.items.map((row: any) => [
+        const rows = item.result.data.items.map((row: any) => [
             `"${row.reference || ''}"`,
             `"${row.activity || ''}"`,
             `"${row.date || ''}"`,
@@ -86,7 +93,7 @@ const ITPParser: React.FC = () => {
     };
 
     const handleBatchDownload = async () => {
-        const successfulItems = queue.filter(item => item.status === 'success' && item.data);
+        const successfulItems = queue.filter(item => item.status === 'success' && item.result);
         if (successfulItems.length === 0) {
             alert("No parsed files available to download.");
             return;
@@ -120,7 +127,71 @@ const ITPParser: React.FC = () => {
         }
     };
 
+    const openEditor = (item: ITPItem) => {
+        setEditingItem(item);
+        setEditText(JSON.stringify(item.result?.data, null, 2));
+    };
+
+    const handleSaveTraining = async () => {
+        if (!editingItem || !editingItem.result) return;
+        setIsTraining(true);
+        try {
+            const parsed = JSON.parse(editText);
+            
+            // 1. Save to Supabase
+            if (editingItem.result.extracted_text) {
+                await saveLearningExample('itp_parser', editingItem.result.extracted_text, parsed);
+            }
+
+            // 2. Update Local State
+            setQueue(prev => prev.map(q => {
+                if (q.id === editingItem.id) {
+                    return {
+                        ...q,
+                        result: {
+                            ...q.result!,
+                            data: parsed,
+                            average_confidence: 1.0 // User verified
+                        }
+                    };
+                }
+                return q;
+            }));
+            
+            setEditingItem(null);
+        } catch (e) {
+            alert("Invalid JSON format. Please check syntax.");
+        } finally {
+            setIsTraining(false);
+        }
+    };
+
     const successfulCount = queue.filter(q => q.status === 'success').length;
+
+    // --- Editor Modal ---
+    if (editingItem) {
+        return (
+            <div className="max-w-4xl mx-auto p-4 bg-zinc-900 border border-zinc-800 rounded-xl animate-fadeIn">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2"><BrainCircuit className="w-6 h-6 text-orange-500" /> Review & Train ITP Parser</h3>
+                    <button onClick={() => setEditingItem(null)} className="text-zinc-500 hover:text-white"><X className="w-5 h-5"/></button>
+                </div>
+                <p className="text-sm text-zinc-400 mb-2">Edit the raw JSON below to correct any extraction errors. This will teach the AI for next time.</p>
+                <textarea 
+                    className="w-full h-96 bg-zinc-950 border border-zinc-700 text-zinc-300 font-mono text-sm p-4 rounded-lg outline-none focus:border-orange-500"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                />
+                <div className="flex justify-end gap-3 mt-4">
+                     <button onClick={() => setEditingItem(null)} className="px-4 py-2 text-zinc-400 hover:text-white">Cancel</button>
+                     <button onClick={handleSaveTraining} disabled={isTraining} className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50">
+                        {isTraining ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>}
+                        Verify & Train
+                     </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-8 animate-fadeIn">
@@ -174,12 +245,17 @@ const ITPParser: React.FC = () => {
                                         <p className="text-[10px] text-zinc-500 uppercase font-bold">{item.status}</p>
                                     </div>
                                 </div>
-                                <div>
+                                <div className="flex items-center gap-2">
                                     {item.status === 'processing' && <Loader2 className="w-5 h-5 text-orange-500 animate-spin" />}
                                     {item.status === 'success' && (
-                                        <button onClick={() => downloadCSV(item)} className="flex items-center px-3 py-1.5 bg-green-500/20 text-green-400 text-sm font-medium rounded-lg hover:bg-green-500/30 transition-colors">
-                                            <FileDown className="w-4 h-4 mr-2" /> Download CSV
-                                        </button>
+                                        <>
+                                            <button onClick={() => openEditor(item)} className="flex items-center px-3 py-1.5 bg-zinc-800 text-zinc-300 text-sm font-medium rounded-lg hover:bg-orange-600 hover:text-white transition-colors">
+                                                <BrainCircuit className="w-4 h-4 mr-2" /> Verify
+                                            </button>
+                                            <button onClick={() => downloadCSV(item)} className="flex items-center px-3 py-1.5 bg-green-500/20 text-green-400 text-sm font-medium rounded-lg hover:bg-green-500/30 transition-colors">
+                                                <FileDown className="w-4 h-4 mr-2" /> CSV
+                                            </button>
+                                        </>
                                     )}
                                     {item.status === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
                                 </div>

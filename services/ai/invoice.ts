@@ -1,7 +1,8 @@
 
 import { Type, Schema } from "@google/genai";
-import { InvoiceData } from "../../types";
+import { InvoiceData, ConfidenceAwareResult } from "../../types";
 import { ai, trackCost, parseJSON, DEFAULT_MODEL } from "./utils";
+import { LearningEngine } from "./LearningEngine";
 
 const INVOICE_SCHEMA: Schema = {
   type: Type.OBJECT,
@@ -26,7 +27,8 @@ const INVOICE_SCHEMA: Schema = {
         paymentTerms: { type: Type.STRING },
         workOrder: { type: Type.STRING },
         department: { type: Type.STRING },
-        ourReference: { type: Type.STRING }
+        ourReference: { type: Type.STRING },
+        currency: { type: Type.STRING }
       }
     },
     summary: {
@@ -63,14 +65,38 @@ const INVOICE_SCHEMA: Schema = {
   required: ["summary", "grandTotal", "currency"]
 };
 
+// Container Schema for Confidence & Training Data
+const CONTAINER_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    data: INVOICE_SCHEMA,
+    confidence_scores: {
+      type: Type.OBJECT,
+      description: "Confidence scores (0.0 - 1.0) for key metadata fields",
+      properties: {
+        vendorName: { type: Type.NUMBER },
+        clientName: { type: Type.NUMBER },
+        invoiceNumber: { type: Type.NUMBER },
+        date: { type: Type.NUMBER },
+        grandTotal: { type: Type.NUMBER }
+      }
+    },
+    extracted_text: {
+      type: Type.STRING,
+      description: "A summary of the raw text from the document header/footer used to extract metadata. Do not include the full line item table text, just the context."
+    }
+  },
+  required: ["data", "confidence_scores", "extracted_text"]
+};
+
 export type FinancialDocType = 'invoice' | 'po' | 'timesheet';
 
-export const processFinancialDocument = async (base64Data: string, mimeType: string, type: FinancialDocType): Promise<InvoiceData> => {
+export const processFinancialDocument = async (base64Data: string, mimeType: string, type: FinancialDocType): Promise<ConfidenceAwareResult<InvoiceData>> => {
   try {
-    let prompt = "";
+    let basePrompt = "";
 
     if (type === 'invoice') {
-        prompt = `You are an expert Invoice Auditor AI. 
+        basePrompt = `You are an expert Invoice Auditor AI. 
         
         TASK:
         1. Analyze the invoice PDF/Image.
@@ -93,12 +119,16 @@ export const processFinancialDocument = async (base64Data: string, mimeType: str
         Rate: 100
         Total: 200
 
-        4. Format everything as JSON.`;
+        4. Provide confidence scores for the main metadata fields.
+        5. Provide 'extracted_text' containing the raw header/metadata text for future training.`;
     } else if (type === 'po') {
-        prompt = `You are a Procurement AI. Analyze this PO and convert to PROFORMA INVOICE data. Vendor=Supplier, Client=Buyer. Total match PO Total.`;
+        basePrompt = `You are a Procurement AI. Analyze this PO and convert to PROFORMA INVOICE data. Vendor=Supplier, Client=Buyer. Total match PO Total. Provide confidence scores.`;
     } else if (type === 'timesheet') {
-        prompt = `You are a Payroll AI. Analyze this Timesheet and generate INVOICE data. Line Items = calculated total hours/days per person.`;
+        basePrompt = `You are a Payroll AI. Analyze this Timesheet and generate INVOICE data. Line Items = calculated total hours/days per person. Provide confidence scores.`;
     }
+
+    // Inject Learning
+    const adaptivePrompt = await LearningEngine.buildAdaptivePrompt('invoice_summary', basePrompt);
 
     const response = await ai.models.generateContent({
       model: DEFAULT_MODEL,
@@ -106,12 +136,12 @@ export const processFinancialDocument = async (base64Data: string, mimeType: str
         role: 'user',
         parts: [
           { inlineData: { data: base64Data, mimeType: mimeType } },
-          { text: prompt },
+          { text: adaptivePrompt },
         ],
       },
       config: {
         responseMimeType: "application/json",
-        responseSchema: INVOICE_SCHEMA,
+        responseSchema: CONTAINER_SCHEMA,
         temperature: 0.1,
         maxOutputTokens: 20000, 
       },
@@ -119,7 +149,18 @@ export const processFinancialDocument = async (base64Data: string, mimeType: str
 
     trackCost(type, DEFAULT_MODEL, response.usageMetadata);
 
-    return parseJSON(response.text);
+    const result = parseJSON(response.text);
+
+    // Calculate avg confidence
+    const scores = Object.values(result.confidence_scores) as number[];
+    const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+
+    return {
+        data: result.data,
+        confidence_scores: result.confidence_scores,
+        average_confidence: avg,
+        extracted_text: result.extracted_text
+    };
 
   } catch (error) {
     console.error("Financial Document Processing Error:", error);

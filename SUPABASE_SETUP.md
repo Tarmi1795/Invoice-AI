@@ -23,3 +23,9 @@ alter table training_data enable row level security;
 -- Policy: Allow anonymous read/write (Update this for production with actual auth)
 create policy "Allow public access" on training_data for all using (true);
 ```
+
+### Rate Table Update (Run if Rate Manager is missing OT Rates)
+```sql
+-- Ensure rates table has ot_rate
+alter table rates add column if not exists ot_rate float default 0;
+```

@@ -1,8 +1,9 @@
 
 import React, { useState, useCallback } from 'react';
-import { Upload, FileDiff, CheckCircle2, AlertTriangle, ArrowRightLeft, FileText, Loader2, X } from 'lucide-react';
+import { Upload, FileDiff, CheckCircle2, AlertTriangle, ArrowRightLeft, FileText, Loader2, X, BrainCircuit, Save } from 'lucide-react';
 import { reconcileDocuments } from '../services/ai/reconciliation';
-import { ReconResult } from '../types';
+import { ReconResult, ConfidenceAwareResult } from '../types';
+import { saveLearningExample } from '../services/supabaseClient';
 
 interface FileState {
     file: File | null;
@@ -12,9 +13,10 @@ interface FileState {
 const Reconciliation: React.FC = () => {
     const [fileA, setFileA] = useState<FileState>({ file: null, base64: null });
     const [fileB, setFileB] = useState<FileState>({ file: null, base64: null });
-    const [result, setResult] = useState<ReconResult | null>(null);
+    const [result, setResult] = useState<ConfidenceAwareResult<ReconResult> | null>(null);
     const [processing, setProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isTraining, setIsTraining] = useState(false);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, side: 'A' | 'B') => {
         const file = e.target.files?.[0];
@@ -50,6 +52,22 @@ const Reconciliation: React.FC = () => {
             setError("Reconciliation failed. Please ensure files are readable (PDF/Excel/Image) and try again.");
         } finally {
             setProcessing(false);
+        }
+    };
+
+    const handleVerifyAndTrain = async () => {
+        if (!result || !result.extracted_text) return;
+        setIsTraining(true);
+        try {
+            // Save the result as a golden record
+            // Note: Reconciliation prompt logic is complex, storing the 'input' context here is tricky as it was 2 files.
+            // We store the 'extracted_text' summary provided by the AI as the input context for future pattern matching.
+            await saveLearningExample('reconciliation', result.extracted_text, result.data);
+            alert("This reconciliation result has been saved to improve future AI accuracy.");
+        } catch (e) {
+            alert("Failed to save training data.");
+        } finally {
+            setIsTraining(false);
         }
     };
 
@@ -103,9 +121,19 @@ const Reconciliation: React.FC = () => {
                     <p className="text-zinc-400 text-sm mt-2">Compare two financial documents (Bank Statement vs Ledger) and find discrepancies automatically.</p>
                 </div>
                 {result && (
-                    <button onClick={reset} className="px-4 py-2 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors">
-                        Start New Reconciliation
-                    </button>
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={handleVerifyAndTrain}
+                            disabled={isTraining}
+                            className="px-4 py-2 bg-zinc-800 border border-zinc-700 text-orange-500 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors flex items-center gap-2"
+                        >
+                            {isTraining ? <Loader2 className="w-4 h-4 animate-spin"/> : <BrainCircuit className="w-4 h-4"/>}
+                            Verify & Train AI
+                        </button>
+                        <button onClick={reset} className="px-4 py-2 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors">
+                            Start New
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -154,19 +182,19 @@ const Reconciliation: React.FC = () => {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl">
                             <p className="text-xs font-bold text-zinc-500 uppercase">Total in File A</p>
-                            <p className="text-2xl font-bold text-white">{result.summary.total_records_file_a}</p>
+                            <p className="text-2xl font-bold text-white">{result.data.summary.total_records_file_a}</p>
                         </div>
                         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl">
                             <p className="text-xs font-bold text-zinc-500 uppercase">Total in File B</p>
-                            <p className="text-2xl font-bold text-white">{result.summary.total_records_file_b}</p>
+                            <p className="text-2xl font-bold text-white">{result.data.summary.total_records_file_b}</p>
                         </div>
                         <div className="bg-red-900/10 border border-red-900/30 p-4 rounded-xl">
                             <p className="text-xs font-bold text-red-400 uppercase">Unmatched</p>
-                            <p className="text-2xl font-bold text-red-500">{result.summary.total_unmatched_a + result.summary.total_unmatched_b}</p>
+                            <p className="text-2xl font-bold text-red-500">{result.data.summary.total_unmatched_a + result.data.summary.total_unmatched_b}</p>
                         </div>
                         <div className="bg-green-900/10 border border-green-900/30 p-4 rounded-xl">
                             <p className="text-xs font-bold text-green-400 uppercase">Matched</p>
-                            <p className="text-2xl font-bold text-green-500">{result.matches.length}</p>
+                            <p className="text-2xl font-bold text-green-500">{result.data.matches.length}</p>
                         </div>
                     </div>
 
@@ -175,7 +203,7 @@ const Reconciliation: React.FC = () => {
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                             <div className="p-4 bg-zinc-950/50 border-b border-zinc-800 flex justify-between items-center">
                                 <span className="font-bold text-red-400 flex items-center gap-2"><X className="w-4 h-4" /> Missing in File B (Present in A)</span>
-                                <span className="text-xs bg-red-900/30 text-red-400 px-2 py-1 rounded">{result.unmatched_in_a.length}</span>
+                                <span className="text-xs bg-red-900/30 text-red-400 px-2 py-1 rounded">{result.data.unmatched_in_a.length}</span>
                             </div>
                             <div className="max-h-64 overflow-y-auto">
                                 <table className="w-full text-sm text-left">
@@ -183,14 +211,14 @@ const Reconciliation: React.FC = () => {
                                         <tr><th className="px-4 py-2">Date</th><th className="px-4 py-2">Desc</th><th className="px-4 py-2 text-right">Amt</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-800">
-                                        {result.unmatched_in_a.map((item, i) => (
+                                        {result.data.unmatched_in_a.map((item, i) => (
                                             <tr key={i} className="hover:bg-zinc-800/30">
                                                 <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{item.date}</td>
                                                 <td className="px-4 py-2 text-zinc-300 truncate max-w-[150px]" title={item.description}>{item.description}</td>
                                                 <td className="px-4 py-2 text-right font-mono text-zinc-300">{item.amount.toLocaleString()}</td>
                                             </tr>
                                         ))}
-                                        {result.unmatched_in_a.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-zinc-600 italic">No unmatched items.</td></tr>}
+                                        {result.data.unmatched_in_a.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-zinc-600 italic">No unmatched items.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -200,7 +228,7 @@ const Reconciliation: React.FC = () => {
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                             <div className="p-4 bg-zinc-950/50 border-b border-zinc-800 flex justify-between items-center">
                                 <span className="font-bold text-red-400 flex items-center gap-2"><X className="w-4 h-4" /> Missing in File A (Present in B)</span>
-                                <span className="text-xs bg-red-900/30 text-red-400 px-2 py-1 rounded">{result.unmatched_in_b.length}</span>
+                                <span className="text-xs bg-red-900/30 text-red-400 px-2 py-1 rounded">{result.data.unmatched_in_b.length}</span>
                             </div>
                             <div className="max-h-64 overflow-y-auto">
                                 <table className="w-full text-sm text-left">
@@ -208,14 +236,14 @@ const Reconciliation: React.FC = () => {
                                         <tr><th className="px-4 py-2">Date</th><th className="px-4 py-2">Desc</th><th className="px-4 py-2 text-right">Amt</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-800">
-                                        {result.unmatched_in_b.map((item, i) => (
+                                        {result.data.unmatched_in_b.map((item, i) => (
                                             <tr key={i} className="hover:bg-zinc-800/30">
                                                 <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{item.date}</td>
                                                 <td className="px-4 py-2 text-zinc-300 truncate max-w-[150px]" title={item.description}>{item.description}</td>
                                                 <td className="px-4 py-2 text-right font-mono text-zinc-300">{item.amount.toLocaleString()}</td>
                                             </tr>
                                         ))}
-                                        {result.unmatched_in_b.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-zinc-600 italic">No unmatched items.</td></tr>}
+                                        {result.data.unmatched_in_b.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-zinc-600 italic">No unmatched items.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -223,7 +251,7 @@ const Reconciliation: React.FC = () => {
                     </div>
 
                     {/* Variance Table */}
-                    {result.amount_mismatches.length > 0 && (
+                    {result.data.amount_mismatches.length > 0 && (
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                              <div className="p-4 bg-yellow-900/10 border-b border-yellow-900/30 flex justify-between items-center">
                                 <span className="font-bold text-yellow-500 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Amount Mismatches (Same Item, Diff Amount)</span>
@@ -239,7 +267,7 @@ const Reconciliation: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-800">
-                                        {result.amount_mismatches.map((row, i) => (
+                                        {result.data.amount_mismatches.map((row, i) => (
                                             <tr key={i} className="hover:bg-zinc-800/30">
                                                 <td className="px-6 py-3 text-zinc-300">{row.item_a.description}</td>
                                                 <td className="px-6 py-3 text-right font-mono text-zinc-400">{row.item_a.amount.toLocaleString()}</td>
@@ -257,7 +285,7 @@ const Reconciliation: React.FC = () => {
                      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                              <div className="p-4 bg-zinc-950/50 border-b border-zinc-800 flex justify-between items-center">
                                 <span className="font-bold text-green-500 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Matched Items</span>
-                                <span className="text-xs bg-green-900/20 text-green-500 px-2 py-1 rounded">{result.matches.length}</span>
+                                <span className="text-xs bg-green-900/20 text-green-500 px-2 py-1 rounded">{result.data.matches.length}</span>
                             </div>
                             <div className="max-h-64 overflow-y-auto">
                                 <table className="w-full text-sm text-left">
@@ -265,7 +293,7 @@ const Reconciliation: React.FC = () => {
                                         <tr><th className="px-4 py-2">Date</th><th className="px-4 py-2">Desc</th><th className="px-4 py-2 text-right">Amt</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-800">
-                                        {result.matches.map((item, i) => (
+                                        {result.data.matches.map((item, i) => (
                                             <tr key={i} className="hover:bg-zinc-800/30 border-l-2 border-transparent hover:border-green-500/50">
                                                 <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{item.date}</td>
                                                 <td className="px-4 py-2 text-zinc-500 truncate max-w-[200px]" title={item.description}>{item.description}</td>
