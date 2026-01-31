@@ -71,7 +71,7 @@ export function SmartReviewDashboard<T extends Record<string, any>>({
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         {Object.keys(fieldLabels).map((key) => {
            const fieldKey = key as keyof T;
-           const score = result.confidence_scores[fieldKey] || 0;
+           const score = result.confidence_scores[key] || 0;
            const isLowConfidence = score < 0.8;
            
            return (

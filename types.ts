@@ -155,16 +155,53 @@ export interface ITPData {
     poNumber: string;
 }
 
+// General Parser Data Schema
+export interface GeneralDocData {
+  document_type: string;
+  summary: string;
+  // We use a flat structure for the 'data' to allow dynamic fields,
+  // but in the raw API response we might use key-value pairs.
+  // The UI will transform this into a flat object Record<string, any>
+  dynamic_fields: Record<string, string | number>;
+}
+
+// Rate Manager Types
+export interface RateItem {
+  id?: string;
+  reference_no: string;
+  description: string;
+  unit: string;
+  rate: number;
+  ot_rate: number;
+  currency: string;
+}
+
 // --- Self-Learning / Training Types ---
 
 export type ProcessingStatus = 'pending' | 'verified' | 'needs_review';
 
 // Updated Module IDs for the system
-export type ModuleId = 'qp_report' | 'itp_parser' | 'invoice_summary' | 'reconciliation';
+export type ModuleId = 
+  | 'invoice' 
+  | 'po' 
+  | 'timesheet' 
+  | 'reconciliation' 
+  | 'general' 
+  | 'qp' 
+  | 'itp' 
+  | 'rates' 
+  | 'templates' 
+  | 'cost' 
+  | 'admin'
+  // Specific parser IDs used in training/learning engine
+  | 'invoice_summary'
+  | 'itp_parser'
+  | 'qp_report'
+  | 'general_parser';
 
 export interface TrainingExample {
   id: string;
-  module_id: ModuleId;
+  module_id: ModuleId | string;
   input_context: string; // The raw text/content used for extraction
   output_json: any;      // The human-verified correct JSON
   user_id?: string;
@@ -174,7 +211,18 @@ export interface TrainingExample {
 // Confidence wrapper for AI results
 export type ConfidenceAwareResult<T> = {
   data: T;
-  confidence_scores: Record<keyof T, number>; // 0.0 to 1.0 score per field
+  confidence_scores: Record<string, number>; // Flexible key type for dynamic fields
   average_confidence: number;
   extracted_text?: string; // The raw text extracted, used for training context
 };
+
+// --- Authentication Types ---
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: 'admin' | 'user';
+  monthly_limit: number;
+  current_usage: number;
+  allowed_modules: string[];
+}

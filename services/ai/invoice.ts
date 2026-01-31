@@ -1,7 +1,7 @@
 
 import { Type, Schema } from "@google/genai";
 import { InvoiceData, ConfidenceAwareResult } from "../../types";
-import { ai, trackCost, parseJSON, DEFAULT_MODEL } from "./utils";
+import { ai, trackCost, parseJSON, DEFAULT_MODEL, checkUsageLimit } from "./utils";
 import { LearningEngine } from "./LearningEngine";
 
 const INVOICE_SCHEMA: Schema = {
@@ -93,6 +93,9 @@ export type FinancialDocType = 'invoice' | 'po' | 'timesheet';
 
 export const processFinancialDocument = async (base64Data: string, mimeType: string, type: FinancialDocType): Promise<ConfidenceAwareResult<InvoiceData>> => {
   try {
+    // Check Limits
+    await checkUsageLimit();
+
     let basePrompt = "";
 
     if (type === 'invoice') {

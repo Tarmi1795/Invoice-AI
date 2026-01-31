@@ -1,6 +1,9 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { TemplateData, UsageLog, TrainingExample, ModuleId } from '../types';
+import { TemplateData, UsageLog, TrainingExample, ModuleId, UserProfile, RateItem } from '../types';
+
+// Re-export RateItem for components that import it from here
+export type { RateItem };
 
 const supabaseUrl = 'https://zmpnigavsyggfhdfdeht.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InptcG5pZ2F2c3lnZ2ZoZGZkZWh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxMjY5NzEsImV4cCI6MjA4MzcwMjk3MX0.yU_yJ2ke8vg2C6JACykkIyW4sl0X2JyDGGRCHN5MeIM';
@@ -11,6 +14,44 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 === SQL SETUP FOR SELF-LEARNING MODULE ===
 Please refer to SUPABASE_SETUP.md for the SQL query.
 */
+
+// --- Auth & Profiles ---
+
+export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+    
+    if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
+    }
+    return data;
+};
+
+// Used by Admin Panel
+export const getAllProfiles = async (): Promise<UserProfile[]> => {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('email');
+    
+    if (error) {
+        console.error('Error fetching all profiles:', error);
+        throw error;
+    }
+    return data || [];
+};
+
+export const updateUserProfile = async (id: string, updates: Partial<UserProfile>) => {
+    const { error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', id);
+    if (error) throw error;
+};
 
 // --- Templates ---
 export const listTemplates = async (): Promise<TemplateData[]> => {
@@ -70,15 +111,6 @@ export const deleteTemplate = async (id: string) => {
 };
 
 // --- Rates ---
-export interface RateItem {
-    id?: string;
-    reference_no: string;
-    description: string;
-    unit: string;
-    rate: number;
-    ot_rate?: number;
-    currency: string;
-}
 
 export const fetchRates = async (): Promise<RateItem[]> => {
     const { data, error } = await supabase
@@ -128,11 +160,25 @@ export const deleteAllRates = async () => {
 
 export const logUsage = async (log: UsageLog) => {
     try {
-        // If table doesn't exist, this will fail silently in the UI but log to console
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // 1. Log to history
         const { error } = await supabase.from('usage_logs').insert(log);
         if (error) console.warn('Failed to log usage:', error.message);
+
+        // 2. Increment user profile usage
+        if (user && log.cost > 0) {
+            // Fetch current usage first to increment securely on client side
+            // (Ideally done via RPC in production to avoid race conditions)
+            const { data: profile } = await supabase.from('profiles').select('current_usage').eq('id', user.id).single();
+            if (profile) {
+                const newUsage = (profile.current_usage || 0) + log.cost;
+                await supabase.from('profiles').update({ current_usage: newUsage }).eq('id', user.id);
+            }
+        }
+
     } catch (e) {
-        console.warn('Usage logging skipped (likely no table)');
+        console.warn('Usage logging skipped');
     }
 };
 
@@ -160,7 +206,7 @@ export const fetchUsageLogs = async (days: number = 30): Promise<UsageLog[]> => 
 /**
  * Fetches similar past verified examples to help the AI context.
  */
-export const getLearningExamples = async (moduleId: ModuleId, limit: number = 3): Promise<TrainingExample[]> => {
+export const getLearningExamples = async (moduleId: string, limit: number = 3): Promise<TrainingExample[]> => {
     try {
         const { data, error } = await supabase
             .from('training_data')
@@ -185,7 +231,7 @@ export const getLearningExamples = async (moduleId: ModuleId, limit: number = 3)
  * Saves a "Golden Record" - a human-verified input/output pair
  * used to teach the AI in future prompts.
  */
-export const saveLearningExample = async (moduleId: ModuleId, input: string, output: any, userId?: string) => {
+export const saveLearningExample = async (moduleId: string, input: string, output: any, userId?: string) => {
     try {
         const { error } = await supabase
             .from('training_data')
